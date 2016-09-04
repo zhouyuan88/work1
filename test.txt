@@ -1,0 +1,20 @@
+1.cd 本地文件夹
+2.从远程仓库clone至本地：git clone https://github.com/zhouyuan88/work1.git
+
+上传文件到自己的远程仓库：
+先把文件放到本地电脑仓库-->git status(查看本地仓库修改了什么文件)-->git add test.txt-->git commit -am "test"-->git push origin master(push到远程仓库)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+。
