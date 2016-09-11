@@ -1,0 +1,216 @@
+Bas_container (周转箱资料表)
+Inb_po_header (采购单头表)
+Inb_receipt_header (入库单头表)
+Inb_receipt_container (收货装箱表) irc
+
+
+初始界面,判断当前用户收货中状态的收获箱：
+select * from inb_receipt_container irc where irc.scan_person={当前操作用户ID} and irc.status=300 order by irc.scan_time desc limit 1;
+存在：sql查询结果有值，获取该周转箱的信息入库单irc.receipt_no有值、托盘irc.pallet_code允许空、周转箱irc.container_code有值
+不存在：sql查询结果无值，结束当前处理。irc.receipt_no固定为空、irc.pallet_code固定为空、irc.container_code固定为空
+
+3.6.3	扫描【入库单号】：
+扫描入库单号输入框检查：
+
+1、输入错误的入库单号，回车    返回错误信息标签，清空【入库单】输入框，光标焦点置于【入库单】输入框。
+2、输入正确的入库单号，回车
+1）需要   扫描托盘号scd.config_value1 =’1’                             界面跳转显示“托盘扫描界面”
+2）不需要 扫描托盘号scd.config_value1 =’0’或者   select * from Sys_config_detail scd where scd.sys_object_id ={前台输入参数_功能对象ID} and scd.config_code =’ Is_Need_Scan_Pallet_Code’;记录为空。  界面跳转显示“周转箱扫描界面”
+3、点击【查询】按钮            界面跳转至“入库单收货查询条件输入界面” 
+
+
+【入库单号】输入框回车事件- 判断用户输入值（入库单）是否在入库单头表存在：
+查询Select count(1) from inb_receipt_header irh where irh.receipt_no ={输入的入库单号}：
+不存在-    界面返回错误信息：找不到入库单!
+=存在-> 入库单最迟收货日期irh.deadline_date=0000-00-00 00:00:00 ->继续。。。3
+     -> 入库单最迟收货日期irh.deadline_date!=0000-00-00 00:00:00->当前操作日期>最迟收货日期->界面提示错误信息：超过最迟收货日期,不允许收货!
+                                                                ->当前操作日期<最迟收货日期->继续。。。3
+3.判断【入库单】状态是否允许收货
+查询入库单头表 irh.status_code >= 900 ->界面提示错误信息：入库单状态不允许收货!
+查询入库单头表 irh.status_code < 900  ->继续。。。4
+4.更新采购单表（inb_po_header iph）
+前采购单的状态 iph.status_code < 300 -> 更新PO状态（iph.status_code）为300、更新时间（iph.updated_dtm_loc）为{当前时间}、更新人（iph.updated_by_user）为{当前操作用户}-》继续。。。4.2
+前采购单的状态 iph.status_code >= 300-> 不更新采购订单表inb_po_header iph。
+4.2更新入库单头表（inb_receipt_header irh）
+当前入库单的状态irh.status_code< 300 ->更新入库单状态（irh.status_code）为300、更新时间（irh.updated_dtm_loc）为{当前时间}、更新人（irh.updated_by_user）为{当前操作用户}、更新收货时间（irh.receive_date）为{当前时间}、更新收货操作人（irh.scan_person）为{当前操作用户ID}。处理成功，继续。。。5.
+当前入库单的状态irh.status_code>= 300->不更新入库单头表。
+5.上面处理成功
+查询scd.config_value1} =’0’ 或者select * from Sys_config_detail scd where scd.sys_object_id ={前台输入参数_功能对象ID} and scd.config_code =’ Is_Need_Scan_Pallet_Code’记录不存在->不需要 扫描托盘号，结束当前处理.
+查询scd.config_value1} =’1’->需要扫描托盘号，结束当前处理.
+==========================================================================================================================================
+3.6.4	扫描【托盘号】:
+1、输入正确的托盘号，回车      界面跳转显示“周转箱扫描界面”  
+1、输入错误的托盘号，回车      界面显示错误信息标签  、清空【托盘】输入框，光标焦点置于【托盘】输入框。
+
+后台：
+托盘号是否为收货中状态：
+select count(1) from Inb_receipt_container irc where irc.receipt_no={receiptNo} and irc.pallet_code={palletCode} and irc.status = 固定值【300】
+
+{count(1)}=’1’  该托盘号为收货中状态的收货箱放置的托盘，结束当前处理逻辑。
+
+{count(1)}=’0’ 继续。。。2.
+
+2.判断【托盘】是否在周转箱资料表（bas_container bc）存在：
+select count（1） from Bas_container bc where bc.container_code={用户扫描的托盘号} and bc.warehouse_code={用户当前登录仓库}
+{count(1)}=’0’ ，则表示该收货箱不存在:
+          扫描托盘号不匹配 收货箱规则表达式    界面显示错误提示信息：托盘号错误，请重新扫描!
+          扫描托盘号匹配 收货箱规则表达式      增加写入周转箱资料表：
+仓库编码： bc.warehouse_code={当前登录仓库}
+周转箱号：  bc.container_code={当前扫描的托盘号}
+周转箱类型：bc.container_type_code=固定值【TY_EXT】 
+使用类型    bc.use_type=固定值【TU_EXT】
+是否混用周转箱 bc.is_mix_type=固定值【1】
+状态        bc.status_code=固定值【100】
+创建用户 irc.created_by_user=固定值【system】
+创建时间 irc.created_dtm_loc={当前系统时间} now（）
+更新用户 irc.updated_by_user=固定值【system】
+更新时间 irc.updated_dtm_loc={当前系统时间} now（） 结束当前处理逻辑
+
+{count(1)}=’1’，判断系统配置是否启用校验托盘类型：
+若{scd.config_value2} =’0’ ，或者查询 select * from Sys_config_detail scd where  scd.sys_object_id ={功能对象ID} and scd.config_code =’Is_Check_Receipt_pallet_Type’ 的sql查询记录不存在                则不校验托盘类型    继续执行下面的判断是否启用校验托盘状态。
+若{scd.config_value2} =’1’，则需要校验托盘类型：
+           {scd.config_value2} 不包含 {bc.use_type} 字符串    界面提示错误信息："托盘类型错误，请换托!"
+           {scd.config_value2} 包含 {bc.use_type} 字符串      则继续执行下面的判断是否启用校验托盘状态。
+
+是否启用校验托盘状态：
+{scd.config_value1} =’0’或者查询select * from Sys_config_detail scd where scd.sys_object_id ={功能对象ID} and scd.config_code =’Is_Check_Receipt_Container_Status’ 
+的sql查询记录不存在          则不校验托盘状态，当前处理结束.
+{scd.config_value1} =’1’   则要校验托盘当前状态，获取当前扫描托盘的状态：
+           若 {bc.status} !=’0’       界面提示错误信息：当前托盘有货，请换托!
+           若 {bc.status} =’0’        结束当前处理。
+
+==========================================================================================================================================
+3.6.6	扫描【条码】（货品条码）：
+初始界面：
+【货品】、【描述】、【品牌】、【应收】、【已收】：label标签初始界面显示为空；
+光标焦点置于【条码】输入框。
+是否输入数量{ IsInputQty }为是时，【数量】输入框可用。
+是否输入数量{ IsInputQty }为否时，【数量】输入框不可用。
+
+条码必输。 
+
+扫描条码接口处理成功：
+需要确认货品包装 { IsCheckSkuUom }=’1’，        界面跳转显示包装规格确认界面
+不需要 确认货品包装{ IsCheckSkuUom }=’0’，  返回值：包装采集方式、包装件数、包装单位；刷新界面【包装件数】label标签显示后台返回的{packQty}值
+
+
+接口处理失败时：
+界面返回错误信息，清空【条码】输入框，光标焦点置于条码输入。
+
+集货品效期 {IsCheckShelflife}=’1’，界面跳转显示效期采集界面
+采集货品效期{IsCheckShelflife}=’0’，判断是否输入数量：
+    输入数量：（{ IsInputQty }= '0'     则收货数量 = 固定值【1】* 包装件数{ packQty }
+    输入数量：（{ IsInputQty }= '1'     则光标焦点置于【数量】输入框；
+                                        【货品】、【描述】、【品牌】：label标签根据扫描条码接口后台返回的值显示。
+                                        【包装件数】：label标签根据货品包装采集接口后台返回的值显示；
+                                        【应收】、【已收】标签，显示转换为“箱+件”：
+
+扫描条码接口处理失败：
+    错误信息标签显示后台返回的msg信息；
+    清空【条码】输入框，光标焦点置于条码输入
+
+
+界面按钮：
+点击【扫】      复制当前【货品】标签中的货品条码值复制到【条码】输入框,同时调用扫描【条码】后的回车事件
+点击【作废】   (详见作废确认按钮处理事件),调用后台作废扫描接口,用户界面跳转显示作废界面
+点击【关箱】    调用后台关箱接口
+
+
+
+后台：
+1、输入条码，回车
+1）若条码存在多个item_code，用户选定一个货品       弹出选择条码界面（显示条码/描述/品牌/货主），选中一个货品。 继续。。。2.
+2）若只有一个货品                                  继续。。。2.
+
+2.select count（1） from Inb_receipt_detail ird where ird.receipt_no={扫描的入库单号} and ird.item_code={扫描的货品条码}
+
+判断系统配置是否启用控制同一周转箱中不允许混SKU:
+若{scd.config_value1} =’0’或查询不到记录         则收货周转箱 允许 混SKU 继续。。。4.
+若{scd.config_value1} =’1’                       则收货周转箱 不允许 不同SKU 装入同一周转箱
+       若收货装箱记录表（irc）不存在当前周转箱号且状态为收货中（irc.status=’300’）的记录     继续。。。4.
+       若存在收货中的记录          任取一条收货记录
+              若当前扫描的SKU与已装入的SKU不一致     同一周转箱不允许混SKU!
+              若当前扫描的SKU与已装入的SKU一致       继续。。。4.
+
+4.控制同一周转箱中不允许混SKU小类
+     若{scd.config_value1} =’0’   允许 混不同小类型SKU   继续。。。5.
+     若{scd.config_value1} =’1’   则收货周转箱 不允许 不同小类SKU 装入同一周转箱
+            irc表不存在当前周转箱且状态为收货中状态的记录    继续。。。5.
+            irc表若存在收货中的记录     获取箱中的任一条货品（允许混小类，则必须先开启3的系统配置允许混SKU）
+                      若当前扫描的SKU的小类（bas_item.item_category3）与已装入的SKU维护的小类不一致    同一周转箱不允许混SKU小类!
+                      若当前扫描的SKU的小类（bas_item.item_category3）与已装入的SKU维护的小类一致      继续。。。5.
+
+5.判断系统配置是否启用管理货品的效期：
+     若{scd.config_value1} =’0’  不启用，继续。。。6.
+     若{scd.config_value1} =’1’  启用，则表示 需要执行货品效期管控处理逻辑
+               若入库单的效期采集方式{ irh.Shelflife_collect_strategy } =【SKU】 或者 { irh.Shelflife_collect_strategy } = ''或者 { irh.Shelflife_collect_strategy } is null，并且货品主档中货品需要进行效期管控{bas_item. is_shelflife_control }=’1’    结束当前处理
+               若入库单的效期采集方式{ irh.Shelflife_collect_strategy } =【Carton】，当前扫描货品是否在该收货箱中存在
+                      若存在     则获取该收货箱中该货品的任一条记录获取对应的生产日期和失效日期
+                      若不存在   则是收货箱该货品的第一件，结束当前处理。
+               若入库单的效期采集方式{ irh.Shelflife_collect_strategy } =【ASN】，判断当前扫描货品是否在该入库单的所有收货箱中存在
+                     若存在      则获取该入库单所有收货箱中该货品的任一条记录获取对应的生产日期和失效日期
+                     若不存在    则是收货箱该货品的第一件；结束当前处理
+
+采集【货品效期】：
+
+
+
+
+
+生产日期超过当前系统日期，不允许收货!"
+若{scd.config_value1} =’0’-》bas_item. inb_life=0-》当前货品是采集生产日期-》用户输入的生产日期是否 小于 当前系统日期 
+
+
+包装规格：（后台逻辑）
+判断当前功能是否启用货品多包装规格处理逻辑：
+     若{scd.config_value1} =’0’     则 不启用 货品多包装规格收货：
+          若 {bi.pack_qty} <= 0       界面提示：主档中包装件数不允许为0，请修改!"
+          若 {bi.pack_qty} > 0        主档中包装件数允许。
+
+     若{scd.config_value1} =’1’     则判断当前扫描货品是否存多包装规格
+          若 {count(1)} = 0
+                若 {bi.pack_qty} <= 0  界面提示错误信息：主档中包装件数不允许为0，请修改!"
+                若 {bi.pack_qty} > 0  
+          若 {count(1)} = 1           从货品主档中获取对应的货品{bi.item_code}、描述{bi.item_name}
+          若 {count(1)} > 1           判断当前入库单已是否确认货品的包装规格采集方式
+                     若{irh.oum_collect_strategy} =‘’或者=’SKU’   则结束当前处理，后台接口返回正确的值
+                     若{irh.oum_collect_strategy} =’Carton’，       则判断当前收货箱明细中该货品是否已经存在
+                                 若不存在   则结束当前处理，后台接口返回正确的值
+                                 若存在     则直接从当前收货箱（irc）中任取一条当前货品的包装件数{irc.case_qty}和包装单位{irc.uom_code}
+                     若{irh.oum_collect_strategy} =’ASN’  判断当前入库单对应的所有收货箱明细中该货品是否已经存在
+                                 若不存在   则结束当前处理，后台接口返回正确的值
+                                 若存在     则直接从对应的所有收货箱（irc）中任取一条当前货品的包装件数{irc.case_qty}和包装单位{irc.uom_code}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.
